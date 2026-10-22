@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="孕期飲食">
   <title>孕期飲食紀錄</title>
   <style>
     :root {
@@ -123,6 +124,7 @@
       align-items: center;
       margin-bottom: 12px;
     }
+    .btn-group { display: flex; gap: 6px; }
     .btn-action {
       padding: 6px 10px;
       font-size: 0.78rem;
@@ -174,7 +176,17 @@
       padding: 4px;
     }
 
-    /* 醫師純淨報表模式 */
+    /* 備份按鈕區塊 */
+    .backup-box {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+      font-size: 0.78rem;
+    }
+
+    /* 報表模式 */
     #reportView { display: none; }
     body.report-active #mainView { display: none; }
     body.report-active #reportView { display: block; }
@@ -207,18 +219,18 @@
 </head>
 <body>
 <div class="container">
-  <!-- 主要輸入與記錄模式 -->
   <div id="mainView">
     <h1>🥗 孕期飲食與生活紀錄</h1>
 
     <div class="card">
       <div class="form-group">
-        <div class="field-title">1. 拍照記錄（拳頭/手掌入鏡當比例尺）</div>
+        <div class="field-title">1. 拍照/上傳照片（手掌入鏡當比例尺）</div>
         <div class="photo-box" id="photoDrop" onclick="document.getElementById('fileInput').click()">
-          <span id="photoHint">📷 點擊拍照或選取照片</span>
+          <span id="photoHint">📷 點擊拍照或從相簿選擇照片</span>
           <img id="previewImg" alt="預覽">
           <button type="button" class="clear-photo" id="clearBtn" onclick="removePhoto(event)">✕</button>
-          <input type="file" id="fileInput" accept="image/*" capture="environment" style="display:none">
+          <!-- 移除 capture 屬性，允許選擇相簿 -->
+          <input type="file" id="fileInput" accept="image/*" style="display:none">
         </div>
       </div>
 
@@ -265,14 +277,21 @@
     <!-- 清單 -->
     <div class="card">
       <div class="list-header">
-        <strong style="font-size: 0.95rem;">📋 飲食紀錄列表 (<span id="recordCount">0</span>)</strong>
-        <div>
-          <button class="btn-action" onclick="toggleReport(true)">📄 醫師報表模式</button>
+        <strong style="font-size: 0.95rem;">📋 飲食紀錄 (<span id="recordCount">0</span>)</strong>
+        <div class="btn-group">
+          <button class="btn-action" onclick="toggleReport(true)">📄 醫師報表</button>
           <button class="btn-action" onclick="clearAllRecords()" style="color:var(--danger);">清空</button>
         </div>
       </div>
       <div id="recordList">
         <div style="text-align:center; color:var(--text-muted); padding: 20px;">載入中...</div>
+      </div>
+      
+      <!-- 資料備份與復原按鈕 -->
+      <div class="backup-box">
+        <button class="btn-action" onclick="exportBackup()">📥 匯出備份檔案</button>
+        <button class="btn-action" onclick="document.getElementById('importInput').click()">📤 匯入備份檔案</button>
+        <input type="file" id="importInput" accept=".json" style="display:none" onchange="importBackup(event)">
       </div>
     </div>
   </div>
@@ -292,8 +311,8 @@
   let db;
   let currentBase64 = '';
 
-  // 1. 初始化資料庫（IndexedDB 持久引擎）
-  const dbReq = indexedDB.open('PregnancyDietTracker', 2);
+  // 1. 初始化資料庫（版本提升至 3，並掛載永久儲存標記）
+  const dbReq = indexedDB.open('PregnancyDietTracker', 3);
   dbReq.onupgradeneeded = function(e) {
     const d = e.target.result;
     if (!d.objectStoreNames.contains('logs')) {
@@ -303,12 +322,16 @@
   dbReq.onsuccess = function(e) {
     db = e.target.result;
     if (navigator.storage && navigator.storage.persist) {
-      navigator.storage.persist();
+      navigator.storage.persist().then(persistent => {
+        console.log('Storage persistent:', persistent);
+      });
     }
     renderList();
   };
+  dbReq.onerror = function() {
+    renderList(); // 如果 IndexedDB 初始化失敗，降級從 localStorage 渲染
+  };
 
-  // 2. 自動帶入當前時間
   function setNowTime() {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -317,7 +340,6 @@
   setNowTime();
   window.addEventListener('pageshow', setNowTime);
 
-  // 3. 單選標籤邏輯
   function bindChips(id) {
     const parent = document.getElementById(id);
     parent.querySelectorAll('.chip').forEach(c => {
@@ -331,7 +353,7 @@
   bindChips('mealOrders');
   bindChips('walkTypes');
 
-  // 4. 照片壓縮處理
+  // 照片壓縮（控制在 600px 以內避免佔滿 Safari 配額）
   document.getElementById('fileInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -339,7 +361,7 @@
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = function() {
-      const maxSide = 800;
+      const maxSide = 600;
       let w = img.width, h = img.height;
       if (w > maxSide || h > maxSide) {
         if (w > h) { h = Math.round((h * maxSide) / w); w = maxSide; }
@@ -349,7 +371,7 @@
       canvas.width = w;
       canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      currentBase64 = canvas.toDataURL('image/jpeg', 0.65);
+      currentBase64 = canvas.toDataURL('image/jpeg', 0.6);
 
       const preview = document.getElementById('previewImg');
       preview.src = currentBase64;
@@ -371,7 +393,7 @@
     document.getElementById('fileInput').value = '';
   }
 
-  // 5. 儲存至資料庫
+  // 雙重儲存：IndexedDB + localStorage 雙保險
   function saveRecord() {
     const mealTime = document.getElementById('mealTime').value;
     const mealType = document.querySelector('#mealTypes .active').dataset.v;
@@ -385,6 +407,7 @@
     }
 
     const data = {
+      id: Date.now(),
       timestamp: new Date(mealTime).getTime(),
       dateStr: mealTime.replace('T', ' '),
       mealType,
@@ -394,73 +417,100 @@
       image: currentBase64
     };
 
-    const tx = db.transaction('logs', 'readwrite');
-    tx.objectStore('logs').add(data);
-    tx.oncomplete = function() {
-      showToast('✅ 紀錄已成功儲存！');
-      document.getElementById('notes').value = '';
-      removePhoto(new Event('dummy'));
-      setNowTime();
-      renderList();
-    };
+    // 1. 存進 IndexedDB
+    if (db) {
+      const tx = db.transaction('logs', 'readwrite');
+      tx.objectStore('logs').put(data);
+    }
+
+    // 2. 備份進 localStorage（即便關閉分頁也不受 IndexedDB 鎖定影響）
+    try {
+      const localList = JSON.parse(localStorage.getItem('pregnancy_diet_logs') || '[]');
+      localList.push(data);
+      localStorage.setItem('pregnancy_diet_logs', JSON.stringify(localList));
+    } catch(err) {
+      console.warn('localStorage 空間已滿，已由 IndexedDB 保存完整資料');
+    }
+
+    showToast('✅ 紀錄已成功儲存！');
+    document.getElementById('notes').value = '';
+    removePhoto(new Event('dummy'));
+    setNowTime();
+    renderList();
   }
 
-  // 6. 讀取並渲染清單
   function renderList() {
-    if (!db) return;
-    const tx = db.transaction('logs', 'readonly');
-    const store = tx.objectStore('logs');
-    store.getAll().onsuccess = function(e) {
-      const records = e.target.result.sort((a,b) => b.timestamp - a.timestamp);
-      document.getElementById('recordCount').textContent = records.length;
-      const listEl = document.getElementById('recordList');
-      const reportEl = document.getElementById('reportContent');
+    if (db) {
+      const tx = db.transaction('logs', 'readonly');
+      const store = tx.objectStore('logs');
+      store.getAll().onsuccess = function(e) {
+        let records = e.target.result;
+        // 如果 IndexedDB 是空的，嘗試從 localStorage 恢復
+        if ((!records || records.length === 0)) {
+          records = JSON.parse(localStorage.getItem('pregnancy_diet_logs') || '[]');
+        }
+        displayRecords(records);
+      };
+    } else {
+      const records = JSON.parse(localStorage.getItem('pregnancy_diet_logs') || '[]');
+      displayRecords(records);
+    }
+  }
 
-      if (records.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">尚無紀錄，拍下第一餐吧！</div>';
-        reportEl.innerHTML = '<div style="text-align:center; padding: 20px;">尚無紀錄</div>';
-        return;
-      }
+  function displayRecords(records) {
+    records.sort((a,b) => b.timestamp - a.timestamp);
+    document.getElementById('recordCount').textContent = records.length;
+    const listEl = document.getElementById('recordList');
+    const reportEl = document.getElementById('reportContent');
 
-      const html = records.map(r => `
-        <div class="item-card">
-          ${r.image ? `<img src="${r.image}" class="item-img">` : `<div class="item-img" style="display:flex;align-items:center;justify-content:center;font-size:0.7rem;color:#A0AEC0;">無照片</div>`}
-          <div class="item-content">
-            <button class="btn-del" onclick="deleteItem(${r.id})">刪除</button>
-            <div class="item-time">${r.dateStr} 【${r.mealType}】</div>
-            <div>
-              <span class="tag">${r.order}</span>
-              <span class="tag tag-walk">${r.walk}</span>
-            </div>
-            ${r.notes ? `<div style="margin-top:4px; color:#4A5568;">💬 ${r.notes}</div>` : ''}
+    if (records.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding: 20px;">尚無紀錄，拍下第一餐吧！</div>';
+      reportEl.innerHTML = '<div style="text-align:center; padding: 20px;">尚無紀錄</div>';
+      return;
+    }
+
+    const html = records.map(r => `
+      <div class="item-card">
+        ${r.image ? `<img src="${r.image}" class="item-img">` : `<div class="item-img" style="display:flex;align-items:center;justify-content:center;font-size:0.7rem;color:#A0AEC0;">無照片</div>`}
+        <div class="item-content">
+          <button class="btn-del" onclick="deleteItem(${r.id})">刪除</button>
+          <div class="item-time">${r.dateStr} 【${r.mealType}】</div>
+          <div>
+            <span class="tag">${r.order}</span>
+            <span class="tag tag-walk">${r.walk}</span>
           </div>
+          ${r.notes ? `<div style="margin-top:4px; color:#4A5568;">💬 ${r.notes}</div>` : ''}
         </div>
-      `).join('');
+      </div>
+    `).join('');
 
-      listEl.innerHTML = html;
-      reportEl.innerHTML = html;
-    };
+    listEl.innerHTML = html;
+    reportEl.innerHTML = html;
   }
 
   function deleteItem(id) {
     if (confirm('確定要刪除這筆紀錄嗎？')) {
-      const tx = db.transaction('logs', 'readwrite');
-      tx.objectStore('logs').delete(id);
-      tx.oncomplete = () => {
-        showToast('已刪除紀錄');
-        renderList();
-      };
+      if (db) {
+        const tx = db.transaction('logs', 'readwrite');
+        tx.objectStore('logs').delete(id);
+      }
+      const localList = JSON.parse(localStorage.getItem('pregnancy_diet_logs') || '[]');
+      const filtered = localList.filter(item => item.id !== id);
+      localStorage.setItem('pregnancy_diet_logs', JSON.stringify(filtered));
+      showToast('已刪除紀錄');
+      renderList();
     }
   }
 
   function clearAllRecords() {
     if (confirm('確定要清空所有紀錄嗎？清空後無法復原喔！')) {
-      const tx = db.transaction('logs', 'readwrite');
-      tx.objectStore('logs').clear();
-      tx.oncomplete = () => {
-        showToast('已清空所有紀錄');
-        renderList();
-      };
+      if (db) {
+        const tx = db.transaction('logs', 'readwrite');
+        tx.objectStore('logs').clear();
+      }
+      localStorage.removeItem('pregnancy_diet_logs');
+      showToast('已清空所有紀錄');
+      renderList();
     }
   }
 
@@ -471,6 +521,48 @@
     } else {
       document.body.classList.remove('report-active');
     }
+  }
+
+  // 匯出備份 JSON 檔案
+  function exportBackup() {
+    const records = JSON.parse(localStorage.getItem('pregnancy_diet_logs') || '[]');
+    if (records.length === 0) {
+      showToast('目前沒有可備份的紀錄');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `孕期飲食紀錄備份_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('備份檔案已下載！');
+  }
+
+  // 匯入備份 JSON 檔案
+  function importBackup(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      try {
+        const imported = JSON.parse(event.target.result);
+        if (Array.isArray(imported)) {
+          localStorage.setItem('pregnancy_diet_logs', JSON.stringify(imported));
+          if (db) {
+            const tx = db.transaction('logs', 'readwrite');
+            const store = tx.objectStore('logs');
+            imported.forEach(item => store.put(item));
+          }
+          showToast('備份匯入成功！');
+          renderList();
+        }
+      } catch(err) {
+        alert('匯入失敗：檔案格式不正確');
+      }
+    };
+    reader.readAsText(file);
   }
 
   function showToast(msg) {
