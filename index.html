@@ -223,6 +223,15 @@
     #reportView { display: none; }
     body.report-active #mainView { display: none; }
     body.report-active #reportView { display: block; }
+    
+    /* 核心調整：在醫師報表模式下，隱藏編輯與刪除按鈕 */
+    body.report-active .item-ops {
+      display: none !important;
+    }
+    body.report-active .item-content {
+      padding-right: 0 !important;
+    }
+
     .report-bar {
       display: flex;
       justify-content: space-between;
@@ -352,7 +361,6 @@
   let currentBase64 = '';
   let editingId = null;
 
-  // 1. 初始化資料庫
   const dbReq = indexedDB.open('PregnancyDietTracker', 3);
   dbReq.onupgradeneeded = function(e) {
     const d = e.target.result;
@@ -409,7 +417,6 @@
     }
   }
 
-  // 照片壓縮
   document.getElementById('fileInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
     if (!file) return;
