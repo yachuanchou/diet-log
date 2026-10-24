@@ -224,7 +224,7 @@
     body.report-active #mainView { display: none; }
     body.report-active #reportView { display: block; }
     
-    /* 核心調整：在醫師報表模式下，隱藏編輯與刪除按鈕 */
+    /* 醫師報表模式下，隱藏編輯與刪除按鈕 */
     body.report-active .item-ops {
       display: none !important;
     }
@@ -306,10 +306,10 @@
       <div class="form-group">
         <div class="field-title">4. 飯後走動狀況</div>
         <div class="chip-list" id="walkTypes">
-          <span class="chip" data-v="尚未走動（稍後補記）">⏳ 尚未走動</span>
-          <span class="chip active" data-v="散步走動 15～20 分">🚶‍♀️ 散步 15～20 分</span>
-          <span class="chip" data-v="微走動（家務約 10 分）">🧹 微走動 10 分</span>
-          <span class="chip" data-v="無走動（久坐/休息）">🛋️ 久坐 / 休息</span>
+          <span class="chip" data-v="尚未走動">⏳ 尚未走動</span>
+          <span class="chip" data-v="微走動5-10分鐘">🧹 微走動5-10分鐘</span>
+          <span class="chip active" data-v="散步20-30分鐘">🚶‍♀️ 散步20-30分鐘</span>
+          <span class="chip" data-v="久坐/休息">🛋️ 久坐/休息</span>
         </div>
       </div>
 
@@ -539,7 +539,7 @@
     document.getElementById('notes').value = '';
     removePhoto();
     setNowTime();
-    setChipValue('walkTypes', '散步走動 15～20 分');
+    setChipValue('walkTypes', '散步20-30分鐘');
 
     document.getElementById('editBanner').style.display = 'none';
     document.getElementById('cancelBtnBottom').style.display = 'none';
